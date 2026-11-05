@@ -1,12 +1,12 @@
 ```
 # Bio-Inspired Sensorimotor Coordination in Robotics
 
-### Integrating Neuroscience, Robotics, and Intelligent Systems
+Integrating Neuroscience, Robotics, and Intelligent Systems
 
-## Overview
+Overview
 This repository contains the development and research for my Master's project, exploring bio-inspired sensorimotor coordination in robotics. The project combines principles from neuroscience, robotics, and machine learning to investigate adaptive and intelligent robotic control.
 
-## Technologies & Tools
+Technologies & Tools
 
 - **Python** – Primary programming language for implementation, simulation, and data analysis.
 - **ROS / ROS 2** – Robot middleware for communication, sensor integration, and control.
