@@ -12,7 +12,7 @@ print(f"Starting observation: {observation}")
 # Example output: [ 0.01234567 -0.00987654  0.02345678  0.01456789]
 # [cart_position, cart_velocity, pole_angle, pole_angular_velocity]
 
-episode_over = False
+episode_over = True
 total_reward = 0
 
 while not episode_over:
