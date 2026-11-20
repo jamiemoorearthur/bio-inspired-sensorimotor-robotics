@@ -56,6 +56,9 @@ def run_experiments(
     seeds: list[int] | None = None,
     render: bool = False,
     results_dir: str | Path | None = None,
+    record_video: bool = False,
+    video_dir: str | Path | None = None,
+    video_episodes: int = 1,
 ) -> list[dict[str, Any]]:
     """Run each condition for every requested seed and export each episode.
 
@@ -71,6 +74,10 @@ def run_experiments(
         seeds = [42]
     if not seeds:
         raise ValueError("Provide at least one random seed.")
+    if video_episodes < 0:
+        raise ValueError("video_episodes must be zero or greater.")
+    if record_video and render:
+        raise ValueError("Choose either human rendering or video recording, not both.")
 
     # Resolve outputs from the repository root, not the caller's current folder.
     repo_root = Path(__file__).resolve().parents[2]
@@ -90,12 +97,23 @@ def run_experiments(
     # Each seed is repeated for each condition, enabling paired comparisons.
     for experiment_id, env_name, controller_name, filename in EXPERIMENTS:
         csv_path = csv_dir / filename
+        evaluation_index = 0
         for seed in seeds:
             for episode_index in range(episodes):
                 # Give repeated episodes distinct deterministic seeds. Using
                 # the number of requested seeds as the stride keeps adjacent
                 # seed lists (for example 42, 43, 44) from overlapping repeats.
                 episode_seed = int(seed) + episode_index * len(seeds)
+                # Video is limited to the first N evaluation episodes per
+                # condition, so long batches do not create videos for every run.
+                record_this_video = (
+                    record_video and evaluation_index < video_episodes
+                )
+                video_prefix = (
+                    f"{env_name.split('-')[0].lower()}_"
+                    f"{controller_name}_seed{episode_seed}"
+                )
+                evaluation_index += 1
                 try:
                     metrics = run_simulation(
                         env_name=env_name,
@@ -103,6 +121,9 @@ def run_experiments(
                         steps=steps,
                         seed=episode_seed,
                         render=render,
+                        record_video=record_this_video,
+                        video_dir=video_dir,
+                        video_prefix=video_prefix,
                     )
                     row = {"experiment_id": experiment_id, **metrics}
                     _append_result(csv_path, row)
@@ -149,6 +170,20 @@ def main(argv=None):
         "--render", action="store_true", help="Show each MuJoCo simulation."
     )
     parser.add_argument(
+        "--record-video",
+        action="store_true",
+        help="Record the first selected evaluation episodes for each condition.",
+    )
+    parser.add_argument(
+        "--video-dir", default=None, help="Video root (default: results/videos)."
+    )
+    parser.add_argument(
+        "--video-episodes",
+        type=int,
+        default=1,
+        help="Maximum number of episodes to record per experiment condition.",
+    )
+    parser.add_argument(
         "--results-dir",
         default=None,
         help="Override the default repository results directory.",
@@ -160,6 +195,9 @@ def main(argv=None):
         seeds=args.seeds,
         render=args.render,
         results_dir=args.results_dir,
+        record_video=args.record_video,
+        video_dir=args.video_dir,
+        video_episodes=args.video_episodes,
     )
     print(f"Exported {len(rows)} episode rows.")
     return rows

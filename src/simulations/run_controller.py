@@ -1,6 +1,9 @@
 """Run one controller in a Gymnasium MuJoCo environment."""
 
 import argparse
+import importlib.util
+import re
+from pathlib import Path
 from typing import Any
 
 import gymnasium as gym
@@ -57,6 +60,9 @@ def run_simulation(
     steps: int = 500,
     seed: int = 42,
     render: bool = False,
+    record_video: bool = False,
+    video_dir: str | Path | None = None,
+    video_prefix: str | None = None,
 ) -> dict[str, Any]:
     """Run one episode (up to ``steps``) and return its performance metrics.
 
@@ -64,6 +70,8 @@ def run_simulation(
     to turn it into an action, and sends that action back to Gymnasium. Either
     Gymnasium termination or truncation ends the episode early. The environment
     is always closed, including when controller or simulation code raises.
+    Optional recording wraps that same environment once, so the recorded RGB
+    frames correspond to the actions produced by the selected controller.
     """
     if env_name not in SUPPORTED_ENVIRONMENTS:
         raise ValueError(
@@ -71,11 +79,79 @@ def run_simulation(
         )
     if steps < 1:
         raise ValueError("steps must be at least 1.")
+    if record_video and render:
+        raise ValueError("Choose either human rendering or video recording, not both.")
 
-    # Human rendering is opt-in, so batch experiments remain headless by default.
-    env = gym.make(env_name, render_mode="human" if render else None)
+    # RGB rendering is enabled only for recording; ordinary experiment runs
+    # keep render_mode=None and avoid the extra frame-rendering overhead.
+    render_mode = "rgb_array" if record_video else "human" if render else None
+    env_kwargs = {"render_mode": render_mode}
+    if record_video:
+        # MuJoCo accepts these output dimensions where its renderer supports them.
+        env_kwargs.update(width=1280, height=720)
+    env = gym.make(env_name, **env_kwargs)
+    video_path = None
+    video_stem = None
+    recording_dir = None
     controller = None
     try:
+        if record_video:
+            # RecordVideo encodes the RGB images returned by MuJoCo's render()
+            # into an MP4. Check the encoder packages first for a useful error.
+            missing = [
+                package
+                for package in ("moviepy", "imageio_ffmpeg")
+                if importlib.util.find_spec(package) is None
+            ]
+            if missing:
+                raise RuntimeError(
+                    "Video recording needs Gymnasium's video encoder dependencies. "
+                    "Install them with: pip install moviepy imageio-ffmpeg"
+                )
+
+            from gymnasium.wrappers import RecordVideo
+
+            # A fresh environment is used for each run, so episode zero is the
+            # selected evaluation episode and the wrapper records its full life.
+            project_root = Path(__file__).resolve().parents[2]
+            output_root = (
+                Path(video_dir)
+                if video_dir is not None
+                else project_root / "results" / "videos"
+            )
+            robot_dir = output_root / env_name.split("-")[0].lower()
+            robot_dir.mkdir(parents=True, exist_ok=True)
+            base_stem = video_prefix or (
+                f"{env_name.split('-')[0].lower()}_"
+                f"{controller_name.lower()}_seed{seed}"
+            )
+            video_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", base_stem)
+
+            # Avoid overwriting earlier videos when the same seed is rerun.
+            suffix = 1
+            while (
+                (robot_dir / f"{video_stem}.mp4").exists()
+                or list(robot_dir.glob(f"{video_stem}-episode-*.mp4"))
+            ):
+                video_stem = f"{base_stem}_run{suffix:02d}"
+                suffix += 1
+            video_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", video_stem)
+            video_path = robot_dir / f"{video_stem}.mp4"
+            # RecordVideo warns whenever its target folder already exists.
+            # Give each run a private new folder, then move the final MP4 up.
+            recording_dir = robot_dir / f".{video_stem}_recording"
+
+            # One wrapper owns capture and encoding. The lambda selects episode
+            # zero explicitly, avoiding Gymnasium's periodic default schedule.
+            env = RecordVideo(
+                env,
+                video_folder=str(recording_dir),
+                episode_trigger=lambda episode_id: episode_id == 0,
+                video_length=0,
+                name_prefix=video_stem,
+                disable_logger=True,
+            )
+
         observation, _info = env.reset(seed=seed)
         controller = make_controller(
             controller_name, env.action_space, observation, seed
@@ -144,10 +220,30 @@ def run_simulation(
                 if controller_name.lower() == "reservoir"
                 else "CPG"
             ),
+            "video_path": str(video_path) if video_path is not None else None,
         }
     finally:
-        # Close MuJoCo viewers and native resources regardless of success.
+        # Closing RecordVideo finalises even a rollout stopped at the step cap.
+        # Gymnasium closes its wrapped MuJoCo environment as part of this call.
         env.close()
+        if record_video and video_stem is not None:
+            recorded_files = sorted(
+                recording_dir.glob(f"{video_stem}-episode-*.mp4")
+            )
+            if not recorded_files:
+                if recording_dir.exists() and not any(recording_dir.iterdir()):
+                    recording_dir.rmdir()
+                raise RuntimeError(
+                    "Video recording produced no MP4. Confirm the environment "
+                    "rendered frames and the video encoder is installed."
+                )
+            recorded_file = recorded_files[0]
+            if recorded_file.stat().st_size == 0:
+                raise RuntimeError(f"Recorded video is empty: {recorded_file}")
+            # RecordVideo adds '-episode-0' to its filename; simplify the final
+            # output to the requested env/controller/seed name after finalising.
+            recorded_file.replace(video_path)
+            recording_dir.rmdir()
 
 
 def main(argv=None):
@@ -162,13 +258,29 @@ def main(argv=None):
     parser.add_argument(
         "--render", action="store_true", help="Open a human-view MuJoCo window."
     )
+    parser.add_argument(
+        "--record-video", action="store_true", help="Save this rollout as an MP4."
+    )
+    parser.add_argument(
+        "--video-dir", default=None, help="Video root (default: results/videos)."
+    )
+    parser.add_argument(
+        "--video-episodes",
+        type=int,
+        default=1,
+        help="Number of eligible evaluation episodes; this command runs one episode.",
+    )
     args = parser.parse_args(argv)
+    if args.video_episodes < 0:
+        parser.error("--video-episodes must be zero or greater.")
     metrics = run_simulation(
         env_name=args.env,
         controller_name=args.controller,
         steps=args.steps,
         seed=args.seed,
         render=args.render,
+        record_video=args.record_video and args.video_episodes > 0,
+        video_dir=args.video_dir,
     )
     for key, value in metrics.items():
         print(f"{key}: {value}")
