@@ -1,0 +1,14 @@
+environment:
+  name: Ant-v5
+  seed: 42
+  max_steps: 500
+
+controller:
+  type: CPG
+  amplitude: 0.5
+  frequency: 1.0
+  oscillators: 8
+
+experiment:
+  robot: ant
+  controller: cpg
