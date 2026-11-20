@@ -18,6 +18,8 @@ Technologies & Tools
 ## Machine Learning Algorithms
 
 Potential algorithms to be explored include:
+
+- **Reinforcement Learning (RL)** – Learning motor control policies through interaction with the environment.
 - **Artificial Neural Networks (ANNs)** – Modelling bio-inspired processing and sensorimotor mappings.
 - **Deep Reinforcement Learning (DRL)** – Learning complex control behaviours where appropriate.
 - **Adaptive Control** – Adjusting control behaviour in response to changing conditions.
