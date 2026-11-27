@@ -10,5 +10,5 @@ controller:
   oscillators: 8
 
 experiment:
-  robot: ant
+  robot: swimmer
   controller: cpg

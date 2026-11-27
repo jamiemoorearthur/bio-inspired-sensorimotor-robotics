@@ -48,3 +48,48 @@ Potential algorithms to be explored include:
 
 ## Academic Context
 Master's research project investigating the intersection of computational neuroscience, robotics, and intelligent systems.
+
+## Simulation Video Recording
+
+The controller runner can optionally save an evaluation rollout as an MP4.
+MuJoCo renders each robot as an RGB image at 1280 x 720 where supported, and
+Gymnasium's `RecordVideo` wrapper captures the initial frame and the frames
+produced as the controller's actions advance the environment. Closing the
+wrapper finalises the video, including rollouts that end at the configured
+step limit. These videos provide qualitative evidence of gait and stability
+alongside the quantitative reward and motion metrics in the CSV files.
+
+Install the video and MuJoCo dependencies in the active Python environment:
+
+```powershell
+pip install "gymnasium[mujoco]" moviepy imageio-ffmpeg
+```
+
+Run one recorded episode (from the repository root):
+
+```powershell
+python -m src.simulations.run_controller --env Ant-v5 --controller cpg --steps 500 --seed 42 --record-video
+python -m src.simulations.run_controller --env Ant-v5 --controller reservoir --steps 500 --seed 42 --record-video
+python -m src.simulations.run_controller --env Swimmer-v5 --controller cpg --steps 500 --seed 42 --record-video
+python -m src.simulations.run_controller --env Swimmer-v5 --controller reservoir --steps 500 --seed 42 --record-video
+```
+
+By default, recordings are written under `results/videos/ant/` and
+`results/videos/swimmer/`, with names such as `ant_cpg_seed42.mp4` and
+`swimmer_reservoir_seed42.mp4`. Existing videos are preserved; rerunning a
+condition gives the new file a `_run02`, `_run03`, and similar suffix.
+
+The experiment runner stays headless unless `--record-video` is supplied. It
+records at most the first selected evaluation episode for each environment and
+controller by default; adjust `--video-episodes` to record more:
+
+```powershell
+python -m src.simulations.run_experiments --episodes 3 --steps 500 --seeds 42 43 44 --record-video --video-episodes 1 --video-dir results/videos
+```
+
+With seed 42 and one selected episode, this produces four paired recordings:
+Ant with CPG, Ant with the untrained/random ESN baseline, Swimmer with CPG, and
+Swimmer with the untrained/random ESN baseline. Use the same seed when comparing
+controllers in an environment. The experiment runner continues appending
+quantitative episode metrics to `results/csv/`; video recording is opt-in and
+does not change the controller implementations.
